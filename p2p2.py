@@ -238,9 +238,9 @@ if __name__ == '__main__':
     # steg = LSBSteg(cv2.imread("f.png"))
     # data = "Hello Mohy"
     # res = steg.encode_text("hello mohy")
-    # cv2.imwrite("mohy_t.jpg", res)
+    # cv2.imwrite("mohy_t.png", res)
 
-    steg_out = LSBSteg(cv2.imread("f.png"))
+    steg_out = LSBSteg(cv2.imread("mohy_t.png"))
     raw = steg_out.decode_text()
     print("output:", raw)
 
