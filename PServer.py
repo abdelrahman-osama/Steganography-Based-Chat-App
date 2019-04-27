@@ -2,17 +2,18 @@
 
 import socket
 import sys
-import time
+import traceback
 import threading
-import random
-import struct
-import cv2
-import docopt
-import numpy as np
-import Crypto
+# import thread
+import select
+import json
 import pickle
+import cv2
 
+SOCKET_LIST = []
 TO_BE_SENT = []
+SENT_BY = {}
+Users = []
 
 
 class SteganographyException(Exception):
@@ -174,134 +175,102 @@ class LSBSteg():
         return output
 
 
+class Server(threading.Thread):
+
+    def init(self):
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        self.sock.bind(('', 5535))
+        self.sock.listen(2)
+        SOCKET_LIST.append(self.sock)
+        print("Server started on port 5535")
+
+    def run(self):
+        while 1:
+            read, write, err = select.select(SOCKET_LIST, [], [], 0)
+            for sock in read:
+                if sock == self.sock:
+                    sockfd, addr = self.sock.accept()
+                    print(str(addr))
+                    # print("HAMADA", sockfd)
+                    SOCKET_LIST.append(sockfd)
+                    print(SOCKET_LIST[len(SOCKET_LIST)-1])
+                else:
+                    try:
+                        s = sock.recv(1024)
+                        if s == '':
+                            print(str(sock.getpeername()))
+                            continue
+                        else:
+                            TO_BE_SENT.append(s)
+                            SENT_BY[s] = (str(sock.getpeername()))
+                    except:
+                        print(str(sock.getpeername()))
+
+
 class Msg:
     name = ''
     port = 0
     pub_key = ''
     type = ''
     msg = ''
+    users = []
 
 
-class Server(threading.Thread):
+class User:
+    name = ''
+    port = 0
+    pub_key = ''
+
+
+class handle_connections(threading.Thread):
     def run(self):
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        print("Server started successfully\n")
-        hostname = ''
-        port = random.randint(51400, 51500)
-        self.sock.bind((hostname, port))
-        self.sock.listen(1)
-        print("Listening on port %d\n" % port)
-        # time.sleep(2)
-        (clientname, address) = self.sock.accept()
-        print("Connection from %s\n" % str(address))
         while 1:
-            data = clientname.recv(4096)
-            data = pickle.loads(data)
-            if(data.type == 'BYE' or data == ''):
-                self.sock.close()
-                print("Session with client ", str(address), " is ended")
-                return 0
-                # sys.exit()
-            print(str(address), ':', data.msg)
+            read, write, err = select.select([], SOCKET_LIST, [], 0)
+            for items in TO_BE_SENT:
+                added = False
+                for s in write:
+                    try:
+                        # m = items.decode('utf-8')
+                        msg = pickle.loads(items)
+                        # msg
+                        print(msg.type, "MESSAGE TYPE")
+                        if(msg.type == 'REG' and not added):
+                            print('USER REGISTERATION')
+                            user = User()
+                            user.name = msg.name
+                            user.port = msg.port
+                            print(user.name, "NEW USER")
+                            Users.append(user)
+                            added = True
 
+                        if(msg.type == 'FTCH'):
+                            usrs = Msg()
+                            usrs.msg = Users
+                            usrs.type = 'ULST'
+                            if(str(s.getpeername()) == SENT_BY[items]):
+                                s.send(pickle.dumps(usrs))
 
-# class handle_connections(threading.Thread):
-#     def run(self):
-#         while 1:
-#             read, write, err = select.select([], SOCKET_LIST, [], 0)
-#             for items in TO_BE_SENT:
-#                 for s in write:
-#                     try:
-#                         if(str(s.getpeername()) == SENT_BY[items]):
-#                             print("Ignoring %s" % (str(s.getpeername())))
-#                             continue
-#                         print("Sending to %s" % (str(s.getpeername())))
-#                         s.send(items)
+                        # if(str(s.getpeername()) == SENT_BY[items]):
+                        #     print("Ignoring %s" % (str(s.getpeername())))
+                        #     continue
+                        update = Msg()
+                        update.type = 'ULST'
+                        update.users = Users
+                        print("Sending to %s" % (str(s.getpeername())))
+                        s.send(pickle.dumps(update))
 
-#                     except:
-#                         traceback.print_exc(file=sys.stdout)
-#                 TO_BE_SENT.remove(items)
-#                 del(SENT_BY[items])
-
-
-class Client(threading.Thread):
-    def connect(self, host, port):
-        self.sock.connect((host, port))
-
-    def client(self, host, port, msg):
-        # self.sock.send(bytes(msg, 'utf8'))
-        self.sock.send(pickle.dumps(msg))
-        print("Sent\n")
-
-    def run(self):
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            # host = input("Enter the hostname\n>>")
-            host = '127.0.0.1'
-            port = eval(input("Enter the port\n>>"))
-            name = input("Enter your name")
-        except EOFError:
-            print("Error")
-            return 1
-
-        print("Connecting\n")
-        s = ''
-        self.connect(host, port)
-        print("Connected\n")
-        while 1:
-            try:
-                print("Waiting for message\n")
-                # msg = input('>>')
-                try:
-                    msg = Msg()
-                    uinput = input('>>')
-                    uinput = uinput.split(':')
-                    msg.type = uinput[0].strip()
-                    msg.msg = uinput[1]
-                    msg.name = name
-                except:
-                    continue
-                if msg.type == 'BYE':
-                    msg = Msg()
-                    msg.type = 'BYE'
-                    self.client(host, port, msg)
-                    self.sock.close()
-                    sys.exit()
-                    break
-                if msg == '':
-                    continue
-                print("Sending\n")
-                self.client(host, port, msg)
-            except KeyboardInterrupt:
-                msg = Msg()
-                msg.type = 'BYE'
-                self.client(host, port, msg)
-                self.sock.close()
-                sys.exit()
-        return(1)
+                    except:
+                        traceback.print_exc(file=sys.stdout)
+                TO_BE_SENT.remove(items)
+                del(SENT_BY[items])
 
 
 if __name__ == '__main__':
-
-    steg = LSBSteg(cv2.imread("f.png"))
-    data = "Hello Mohy"
-    res = steg.encode_text("hello safya")
-    cv2.imwrite("mohy_t.png", res)
-
-    # steg_out = LSBSteg(cv2.imread("mohy_t.png"))
-    # raw = steg_out.decode_text()
-    # print("output:", raw)
-
-    # out_f = "out.txt"
-    # with open(out_f, "wb") as f:
-    #     f.write(raw)
-
     srv = Server()
-    srv.daemon = True
-    print("Starting server")
+    srv.init()
     srv.start()
-    time.sleep(1)
-    print("Starting client")
-    cli = Client()
-    print("Started successfully")
-    cli.start()
+    print(SOCKET_LIST)
+    handle = handle_connections()
+    handle.start()

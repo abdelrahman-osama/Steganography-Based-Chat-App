@@ -4,11 +4,14 @@ import socket
 import sys
 import traceback
 import threading
-import thread
+# import thread
 import select
+import json
+import pickle
 SOCKET_LIST = []
 TO_BE_SENT = []
 SENT_BY = {}
+Users = []
 
 
 class Server(threading.Thread):
@@ -20,7 +23,7 @@ class Server(threading.Thread):
         self.sock.bind(('', 5535))
         self.sock.listen(2)
         SOCKET_LIST.append(self.sock)
-        print "Server started on port 5535"
+        print("Server started on port 5535")
 
     def run(self):
         while 1:
@@ -28,20 +31,34 @@ class Server(threading.Thread):
             for sock in read:
                 if sock == self.sock:
                     sockfd, addr = self.sock.accept()
-                    print str(addr)
+                    print(str(addr))
                     SOCKET_LIST.append(sockfd)
-                    print SOCKET_LIST[len(SOCKET_LIST)-1]
+                    print(SOCKET_LIST[len(SOCKET_LIST)-1])
                 else:
                     try:
                         s = sock.recv(1024)
                         if s == '':
-                            print str(sock.getpeername())
+                            print(str(sock.getpeername()))
                             continue
                         else:
                             TO_BE_SENT.append(s)
                             SENT_BY[s] = (str(sock.getpeername()))
                     except:
-                        print str(sock.getpeername())
+                        print(str(sock.getpeername()))
+
+
+class Msg:
+    name = ''
+    port = 0
+    pub_key = ''
+    type = ''
+    msg = ''
+
+
+class User:
+    name = ''
+    port = 0
+    pub_key = ''
 
 
 class handle_connections(threading.Thread):
@@ -51,11 +68,17 @@ class handle_connections(threading.Thread):
             for items in TO_BE_SENT:
                 for s in write:
                     try:
+                        # m = items.decode('utf-8')
+                        msg = pickle.loads(items)
+                        # msg
+                        if(msg.type == 'REG'):
+                            print('USER REGISTERATION')
+                            # Users.append()
                         if(str(s.getpeername()) == SENT_BY[items]):
                             print("Ignoring %s" % (str(s.getpeername())))
                             continue
-                        print "Sending to %s" % (str(s.getpeername()))
-                        s.send(items)
+                        print("Sending to %s" % (str(s.getpeername())))
+                        s.send(msg)
 
                     except:
                         traceback.print_exc(file=sys.stdout)
@@ -67,6 +90,6 @@ if __name__ == '__main__':
     srv = Server()
     srv.init()
     srv.start()
-    print SOCKET_LIST
+    print(SOCKET_LIST)
     handle = handle_connections()
     handle.start()
