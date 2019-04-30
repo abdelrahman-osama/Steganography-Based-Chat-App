@@ -241,6 +241,7 @@ class handle_connections(threading.Thread):
                             user = User()
                             user.name = msg.name
                             user.port = msg.port
+                            user.pub_key = msg.pub_key
                             print(user.name, "NEW USER")
                             Users.append(user)
                             added = True

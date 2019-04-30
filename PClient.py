@@ -10,6 +10,9 @@ import numpy as np
 import pickle
 import random
 import cv2
+from Crypto.PublicKey import RSA
+import Crypto.Util.number as CUN
+import os
 
 SOCKET_LIST = []
 SENDING_LIST = []
@@ -206,6 +209,13 @@ class Server(threading.Thread):
         raw = steg_out.decode_text()
         return raw
 
+    def authenticate(self, msg):
+        for user in UsersList:
+            if(user.name == msg.name):
+                pub_key = user.pub_key
+                return pub_key.verify(msg.msg, msg.sig)
+        return False
+
     def run(self):
         while 1:
             read, write, err = select.select(SOCKET_LIST, [], [], 0)
@@ -226,9 +236,17 @@ class Server(threading.Thread):
                         #     m += s
                         # if(len(m) == total):
                         #     break
-
                         data_string = pickle.loads(s)
-                        # print(data_string.type, 'MESSAGE TYPE')
+                        print(data_string, '111111')
+                        data_string = private_key.decrypt(data_string)
+                        print(data_string, '2222222')
+                        decrypted_msg = pickle.loads(data_string)
+                        #
+                        #
+                        print(decrypted_msg, '333333')
+
+                        # # print(data_string.type, 'MESSAGE TYPE')
+                        # decrypted_msg =  decrypted_msg
                         if(data_string.type == 'BYE'):
                             # print(str(sock.getpeername()), "hena??")
                             SOCKET_LIST.remove(sock)
@@ -241,15 +259,20 @@ class Server(threading.Thread):
                         else:
                             # if data_string.type == 'AMSG':
                                 # TO_BE_SENT.append(s)
-                            out = self.decode(data_string.msg)
+
+                            is_authenticated = self.authenticate(data_string)
+                            if(is_authenticated):
+                                out = self.decode(decrypted_msg.msg)
                             # out =
                             # out = data_string.msg
-                            print(data_string.name, ': ', out)
+                                print(data_string.name, ': ', out)
+                            else:
+                                print('Failed to authenticate.')
                             # SENT_BY[s] = (str(sock.getpeername()))
                     except:
-                        # print(sock, "hena??")
+                        traceback.print_exc(file=sys.stdout)
                         SOCKET_LIST.remove(sock)
-                        # print("REMOVED", sock)
+                        print("REMOVED", sock)
                         sock.close()
 
 
@@ -260,6 +283,7 @@ class Msg:
     receiver_name = ''
     receiver_port = 0
     type = ''
+    sig = 0
     msg = ''
     users = []
     sock = ''
@@ -277,6 +301,8 @@ class User:
         out += self.name
         out += ' Port :'
         out += str(self.port)
+        out += ' PUB_KEY : '
+        out += str(self.pub_key.exportKey('PEM'))
         return out
 
 
@@ -317,14 +343,15 @@ class Client(threading.Thread):
     def encrypt(self, msg):
         steg = LSBSteg(cv2.imread("guc1.png"))
         res = steg.encode_text(msg)
-        # img = cv2.imwrite("mohy_t.png", res)
         return res
 
-    def connect(self, host, port, name):
+
+    def connect(self, host, port, name, pub_key):
         self.sock.connect((host, port))
         msg = Msg()
         msg.name = name
         msg.port = ServerPort
+        msg.pub_key = pub_key
         msg.type = 'REG'
         # msg.sock = self.sock
         data_string = pickle.dumps(msg)
@@ -340,6 +367,10 @@ class Client(threading.Thread):
     def run(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        global private_key
+        private_key = RSA.generate(2048)
+        pub_key =  private_key.publickey()
+
         try:
             # host = input("Enter the hostname\n>>")
             # port = int(input("Enter the port\n>>"))
@@ -363,7 +394,7 @@ class Client(threading.Thread):
         print("Connecting\n")
         s = ''
         # servSock = srv.getSock()
-        self.connect(host, port, name)
+        self.connect(host, port, name, pub_key)
         print("Connected\n")
         time.sleep(1)
         srv.start()
@@ -380,6 +411,7 @@ class Client(threading.Thread):
         srv2.start()
         while 1:
             # print "Waiting for message\n"
+
             try:
                 msg = Msg()
                 uinput = input('>>')
@@ -392,17 +424,23 @@ class Client(threading.Thread):
                 # msg.msg = uinput[1]
                 else:
                     msg.msg = self.encrypt(uinput[1].strip())
+
+                K = CUN.getRandomNumber(128, os.urandom)
+                signature = private_key.sign(bytes(msg.msg), K)
+                msg.sig = signature
                 msg.name = name.strip()
             except:
+
+                traceback.print_exc(file=sys.stdout)
                 continue
             if(msg.type == 'AMSG'):
-                TO_BE_SENT.append(pickle.dumps(msg))
-                SENT_BY[pickle.dumps(msg)] = (msg.name)
+                TO_BE_SENT.append(msg)
+                SENT_BY[msg] = (msg.name)
             elif(msg.type == 'DMSG'):
-                TO_BE_SENT.append(pickle.dumps(msg))
-                SENT_BY[pickle.dumps(msg)] = (msg.name)
+                TO_BE_SENT.append(msg)
+                SENT_BY[msg] = (msg.name)
             elif(msg.type == 'FTCH'):
-                self.sock.send(pickle.dumps(msg))
+                self.sock.send(msg)
             elif msg.msg == 'exit':
                 break
             elif msg.msg == '':
@@ -416,20 +454,19 @@ class handle_connections(threading.Thread):
     def run(self):
         while 1:
             for items in TO_BE_SENT:
-                msg = pickle.loads(items)
+                msg = items
                 if(msg.type == 'AMSG'):
-                    ports = []
                     for user in UsersList:
-                        ports.append(user.port)
-                    for s in ports:
                         try:
                             self.sock = socket.socket(
                                 socket.AF_INET, socket.SOCK_STREAM)
-                            self.sock.connect(('127.0.0.1', s))
+                            self.sock.connect(('127.0.0.1', user.port))
                             # msg = pickle.loads(items)
                             # if(msg.type == 'AMSG'):
+                            K = CUN.getRandomNumber(128, os.urandom)
+                            enc_items = user.pub_key.encrypt(bytes(items.msg), K)[0]
                             try:
-                                self.sock.send(items)
+                                self.sock.send(pickle.dumps(enc_items))
                                 # time.sleep(1)
                             finally:
                                 self.sock.close()
@@ -440,15 +477,19 @@ class handle_connections(threading.Thread):
                     del(SENT_BY[items])
                 if(msg.type == 'DMSG'):
                     port = 0
+                    pub_key = ''
                     for user in UsersList:
                         if(user.name == msg.receiver_name):
                             port = user.port
+                            pub_key = user.pub_key
                     try:
                         self.sock = socket.socket(
                             socket.AF_INET, socket.SOCK_STREAM)
                         self.sock.connect(('127.0.0.1', port))
+                        K = CUN.getRandomNumber(128, os.urandom)
+                        enc_items = pub_key.encrypt(items, K)[0]
                         try:
-                            self.sock.send(items)
+                            self.sock.send(pickle.dumps(enc_items))
                         finally:
                             self.sock.close()
                     except:
