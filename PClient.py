@@ -238,12 +238,11 @@ class Server(threading.Thread):
                         #     break
                         data_string = pickle.loads(s)
                         print(data_string, '111111')
-                        data_string = private_key.decrypt(data_string)
-                        print(data_string, '2222222')
-                        decrypted_msg = pickle.loads(data_string)
-                        #
-                        #
-                        print(decrypted_msg, '333333')
+
+                        # decrypted_msg = pickle.loads(data_string)
+                        # #
+                        # #
+                        # print(decrypted_msg, '333333')
 
                         # # print(data_string.type, 'MESSAGE TYPE')
                         # decrypted_msg =  decrypted_msg
@@ -259,10 +258,12 @@ class Server(threading.Thread):
                         else:
                             # if data_string.type == 'AMSG':
                                 # TO_BE_SENT.append(s)
-
+                            decrypted_msg = private_key.decrypt(data_string.msg)
+                            data_string.msg =decrypted_msg
                             is_authenticated = self.authenticate(data_string)
                             if(is_authenticated):
-                                out = self.decode(decrypted_msg.msg)
+                                out = self.decode(np.frombuffer(data_string.msg,dtype= 'uint8'))
+                                print(out)
                             # out =
                             # out = data_string.msg
                                 print(data_string.name, ': ', out)
@@ -343,6 +344,8 @@ class Client(threading.Thread):
     def encrypt(self, msg):
         steg = LSBSteg(cv2.imread("guc1.png"))
         res = steg.encode_text(msg)
+        print("TYPE", res.dtype)
+        print("SHAPE", res.shape)
         return res
 
 
@@ -426,7 +429,7 @@ class Client(threading.Thread):
                     msg.msg = self.encrypt(uinput[1].strip())
 
                 K = CUN.getRandomNumber(128, os.urandom)
-                signature = private_key.sign(bytes(msg.msg), K)
+                signature = private_key.sign(msg.msg.tobytes(), K)
                 msg.sig = signature
                 msg.name = name.strip()
             except:
@@ -465,8 +468,9 @@ class handle_connections(threading.Thread):
                             # if(msg.type == 'AMSG'):
                             K = CUN.getRandomNumber(128, os.urandom)
                             enc_items = user.pub_key.encrypt(bytes(items.msg), K)[0]
+                            msg.msg = enc_items
                             try:
-                                self.sock.send(pickle.dumps(enc_items))
+                                self.sock.send(pickle.dumps(msg))
                                 # time.sleep(1)
                             finally:
                                 self.sock.close()
@@ -487,7 +491,8 @@ class handle_connections(threading.Thread):
                             socket.AF_INET, socket.SOCK_STREAM)
                         self.sock.connect(('127.0.0.1', port))
                         K = CUN.getRandomNumber(128, os.urandom)
-                        enc_items = pub_key.encrypt(items, K)[0]
+                        enc_items = pub_key.encrypt(bytes(items.msg), K)[0]
+
                         try:
                             self.sock.send(pickle.dumps(enc_items))
                         finally:
