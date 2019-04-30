@@ -10,13 +10,14 @@ import numpy as np
 import pickle
 import random
 import cv2
-
+import Crypto.Hash.MD5 as MD5
 SOCKET_LIST = []
 SENDING_LIST = []
 TO_BE_SENT = []
 SENT_BY = {}
 UsersList = []
 ServerPort = 0
+RUNNING = True
 
 
 class SteganographyException(Exception):
@@ -207,7 +208,7 @@ class Server(threading.Thread):
         return raw
 
     def run(self):
-        while 1:
+        while RUNNING:
             read, write, err = select.select(SOCKET_LIST, [], [], 0)
             for sock in read:
                 if sock == self.sock:
@@ -263,6 +264,7 @@ class Msg:
     msg = ''
     users = []
     sock = ''
+    password = ''
 
     # stag = np.empty()
 
@@ -271,6 +273,7 @@ class User:
     name = ''
     port = 0
     pub_key = ''
+    password = ''
 
     def __str__(self):
         out = 'Name : '
@@ -289,7 +292,7 @@ class MainServerConnection(threading.Thread):
         lis.append(self.receive)
         print('listening from main server on port:',
               self.receive.getsockname()[1])
-        while 1:
+        while RUNNING:
             read, write, err = select.select(lis, [], [])
             for item in read:
                 try:
@@ -320,13 +323,20 @@ class Client(threading.Thread):
         # img = cv2.imwrite("mohy_t.png", res)
         return res
 
-    def connect(self, host, port, name):
+    def connect(self, host, port, name, password, initialState):
         self.sock.connect((host, port))
         msg = Msg()
         msg.name = name
         msg.port = ServerPort
+        # msg.password = password
+        msg.password = MD5.new(password.encode('utf-8')).digest()
+        # print(msg.password)
+        # print(repr(msg.password))
         msg.type = 'REG'
-        # msg.sock = self.sock
+        if(initialState == 's'):
+            msg.type = 'REG'
+        elif(initialState == 'l'):
+            msg.type = 'LOGIN'
         data_string = pickle.dumps(msg)
         self.sock.send(data_string)
         # print("sent")
@@ -345,7 +355,10 @@ class Client(threading.Thread):
             # port = int(input("Enter the port\n>>"))
             host = '127.0.0.1'
             port = 5535
+            initialState = input(
+                "to login enter 'l' and to sign up enter 's' ")
             name = input("Enter your name: ")
+            password = input("Enter your password: ")
             # user.port
 
         except EOFError:
@@ -363,7 +376,7 @@ class Client(threading.Thread):
         print("Connecting\n")
         s = ''
         # servSock = srv.getSock()
-        self.connect(host, port, name)
+        self.connect(host, port, name, password, initialState)
         print("Connected\n")
         time.sleep(1)
         srv.start()
@@ -378,7 +391,8 @@ class Client(threading.Thread):
         srv2.daemon = True
         print("Starting service")
         srv2.start()
-        while 1:
+        global RUNNING
+        while RUNNING:
             # print "Waiting for message\n"
             try:
                 msg = Msg()
@@ -403,6 +417,12 @@ class Client(threading.Thread):
                 SENT_BY[pickle.dumps(msg)] = (msg.name)
             elif(msg.type == 'FTCH'):
                 self.sock.send(pickle.dumps(msg))
+            elif(msg.type == 'BYE'):
+                self.sock.send(pickle.dumps(msg))
+                self.sock.shutdown(socket.SHUT_WR)
+                self.sock.close()
+                RUNNING = False
+                sys.exit(0)
             elif msg.msg == 'exit':
                 break
             elif msg.msg == '':
@@ -414,7 +434,8 @@ class Client(threading.Thread):
 
 class handle_connections(threading.Thread):
     def run(self):
-        while 1:
+        global RUNNING
+        while RUNNING:
             for items in TO_BE_SENT:
                 msg = pickle.loads(items)
                 if(msg.type == 'AMSG'):

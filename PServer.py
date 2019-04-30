@@ -9,6 +9,7 @@ import select
 import json
 import pickle
 import cv2
+import Crypto
 
 SOCKET_LIST = []
 TO_BE_SENT = []
@@ -199,8 +200,10 @@ class Server(threading.Thread):
                 else:
                     try:
                         s = sock.recv(4096)
-                        if s == '':
-                            print(str(sock.getpeername()))
+                        if s == b'':
+                            # print(str(sock.getpeername()))
+                            del SOCKET_LIST[SOCKET_LIST.index(sock)]
+                            sock.close()
                             continue
                         else:
                             TO_BE_SENT.append(s)
@@ -216,12 +219,14 @@ class Msg:
     type = ''
     msg = ''
     users = []
+    password = ''
 
 
 class User:
     name = ''
     port = 0
     pub_key = ''
+    password = ''
 
 
 class handle_connections(threading.Thread):
@@ -233,33 +238,81 @@ class handle_connections(threading.Thread):
                 for s in write:
                     try:
                         # m = items.decode('utf-8')
+
                         msg = pickle.loads(items)
+
                         # msg
                         print(msg.type, "MESSAGE TYPE")
                         if(msg.type == 'REG' and not added):
-                            print('USER REGISTERATION')
-                            user = User()
-                            user.name = msg.name
-                            user.port = msg.port
-                            print(user.name, "NEW USER")
-                            Users.append(user)
-                            added = True
-
+                            usernames = []
+                            for u in Users:
+                                usernames.append(u.name)
+                            print(usernames)
+                            if(msg.name not in usernames):
+                                print('USER REGISTERATION')
+                                user = User()
+                                user.name = msg.name
+                                user.port = msg.port
+                                user.password = msg.password
+                                print(user.name, "NEW USER")
+                                Users.append(user)
+                                added = True
+                            else:
+                                break
+                            update = Msg()
+                            update.type = 'ULST'
+                            update.users = Users
+                            print("Sending to %s" % (str(s.getpeername())))
+                            s.send(pickle.dumps(update))
+                        if(msg.type == 'LOGIN'):
+                            found = False
+                            for user in Users:
+                                if(user.name == msg.name):
+                                    print(msg.password, ' ~~~~', user.password)
+                                    if(msg.password == user.password):
+                                        found = True
+                                        print(
+                                            'User logged in successfully', msg.name)
+                                        user.port = msg.port
+                                    else:
+                                        print('Wrong password')
+                            if(not found):
+                                print('User not found')
+                            update = Msg()
+                            update.type = 'ULST'
+                            update.users = Users
+                            print("Sending to %s" % (str(s.getpeername())))
+                            s.send(pickle.dumps(update))
                         if(msg.type == 'FTCH'):
                             usrs = Msg()
                             usrs.msg = Users
                             usrs.type = 'ULST'
                             if(str(s.getpeername()) == SENT_BY[items]):
                                 s.send(pickle.dumps(usrs))
+                            update = Msg()
+                            update.type = 'ULST'
+                            update.users = Users
+                            print("Sending to %s" % (str(s.getpeername())))
+                            s.send(pickle.dumps(update))
+                        if(msg.type == 'BYE'):
+                            for user in Users:
+                                if(user.name == msg.name):
+                                    print('User', user.name, 'logged out')
+                                    try:
+                                        del SOCKET_LIST[SOCKET_LIST.index(s)]
+                                        s.shutdown(socket.SHUT_RDWR)
+                                        s.close()
+                                    except:
+                                        continue
 
                         # if(str(s.getpeername()) == SENT_BY[items]):
                         #     print("Ignoring %s" % (str(s.getpeername())))
                         #     continue
-                        update = Msg()
-                        update.type = 'ULST'
-                        update.users = Users
-                        print("Sending to %s" % (str(s.getpeername())))
-                        s.send(pickle.dumps(update))
+                        # update = Msg()
+                        # update.type = 'ULST'
+                        # update.users = Users
+                        # print("Sending to %s" % (str(s.getpeername())))
+                        # s.send(pickle.dumps(update))
 
                     except:
                         traceback.print_exc(file=sys.stdout)
