@@ -217,18 +217,18 @@ class Server(threading.Thread):
                     # print(SOCKET_LIST[len(SOCKET_LIST)-1])
                 else:
                     try:
-                        s = sock.recv()
-                        total = len(s)
-                        print('MSG TOTAL SIZE = ', total)
-                        m = ''
-                        while(s):
-                            print('receiving..')
-                            m += s
-                            # if(len(m) == total):
-                            #     break
+                        s = sock.recv(4096)
+                        # total = len(s)
+                        # print('MSG TOTAL SIZE = ', total)
+                        # m = ''
+                        # while(s):
+                        #     print('receiving..')
+                        #     m += s
+                        # if(len(m) == total):
+                        #     break
 
-                        data_string = pickle.loads(m)
-                        print(data_string.type, 'MESSAGE TYPE')
+                        data_string = pickle.loads(s)
+                        # print(data_string.type, 'MESSAGE TYPE')
                         if(data_string.type == 'BYE'):
                             # print(str(sock.getpeername()), "hena??")
                             SOCKET_LIST.remove(sock)
@@ -241,7 +241,9 @@ class Server(threading.Thread):
                         else:
                             # if data_string.type == 'AMSG':
                                 # TO_BE_SENT.append(s)
-                            out = self, decode(data_string.msg)
+                            out = self.decode(data_string.msg)
+                            # out =
+                            # out = data_string.msg
                             print(data_string.name, ': ', out)
                             # SENT_BY[s] = (str(sock.getpeername()))
                     except:
@@ -255,6 +257,8 @@ class Msg:
     name = ''
     port = 0
     pub_key = ''
+    receiver_name = ''
+    receiver_port = 0
     type = ''
     msg = ''
     users = []
@@ -311,7 +315,7 @@ class MainServerConnection(threading.Thread):
 class Client(threading.Thread):
 
     def encrypt(self, msg):
-        steg = LSBSteg(cv2.imread("f.png"))
+        steg = LSBSteg(cv2.imread("guc1.png"))
         res = steg.encode_text(msg)
         # img = cv2.imwrite("mohy_t.png", res)
         return res
@@ -381,12 +385,20 @@ class Client(threading.Thread):
                 uinput = input('>>')
                 uinput = uinput.split(':')
                 msg.type = uinput[0].strip()
+                if(msg.type == 'DMSG'):
+                    msg.receiver_name = uinput[1].strip()
+                    msg.msg = self.encrypt(uinput[2].strip())
+                    # msg.receiver_port = 0
                 # msg.msg = uinput[1]
-                msg.msg = self.encrypt(uinput[1])
-                msg.name = name
+                else:
+                    msg.msg = self.encrypt(uinput[1].strip())
+                msg.name = name.strip()
             except:
                 continue
             if(msg.type == 'AMSG'):
+                TO_BE_SENT.append(pickle.dumps(msg))
+                SENT_BY[pickle.dumps(msg)] = (msg.name)
+            elif(msg.type == 'DMSG'):
                 TO_BE_SENT.append(pickle.dumps(msg))
                 SENT_BY[pickle.dumps(msg)] = (msg.name)
             elif(msg.type == 'FTCH'):
@@ -404,26 +416,45 @@ class handle_connections(threading.Thread):
     def run(self):
         while 1:
             for items in TO_BE_SENT:
-                ports = []
-                for user in UsersList:
-                    ports.append(user.port)
-                for s in ports:
+                msg = pickle.loads(items)
+                if(msg.type == 'AMSG'):
+                    ports = []
+                    for user in UsersList:
+                        ports.append(user.port)
+                    for s in ports:
+                        try:
+                            self.sock = socket.socket(
+                                socket.AF_INET, socket.SOCK_STREAM)
+                            self.sock.connect(('127.0.0.1', s))
+                            # msg = pickle.loads(items)
+                            # if(msg.type == 'AMSG'):
+                            try:
+                                self.sock.send(items)
+                                # time.sleep(1)
+                            finally:
+                                self.sock.close()
+                            # self.sock.shutdown()
+                        except:
+                            traceback.print_exc(file=sys.stdout)
+                    TO_BE_SENT.remove(items)
+                    del(SENT_BY[items])
+                if(msg.type == 'DMSG'):
+                    port = 0
+                    for user in UsersList:
+                        if(user.name == msg.receiver_name):
+                            port = user.port
                     try:
                         self.sock = socket.socket(
                             socket.AF_INET, socket.SOCK_STREAM)
-                        self.sock.connect(('127.0.0.1', s))
-                        msg = pickle.loads(items)
-                        if(msg.type == 'AMSG'):
-                            try:
-                                self.sock.sendall(pickle.dumps(msg))
-                            # time.sleep(1)
-                            finally:
-                                self.sock.close()
-                        # self.sock.shutdown()
+                        self.sock.connect(('127.0.0.1', port))
+                        try:
+                            self.sock.send(items)
+                        finally:
+                            self.sock.close()
                     except:
                         traceback.print_exc(file=sys.stdout)
-                TO_BE_SENT.remove(items)
-                del(SENT_BY[items])
+                    TO_BE_SENT.remove(items)
+                    del(SENT_BY[items])
 
 
 if __name__ == '__main__':

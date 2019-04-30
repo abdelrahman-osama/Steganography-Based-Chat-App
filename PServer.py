@@ -198,7 +198,7 @@ class Server(threading.Thread):
                     print(SOCKET_LIST[len(SOCKET_LIST)-1])
                 else:
                     try:
-                        s = sock.recv(1024)
+                        s = sock.recv(4096)
                         if s == '':
                             print(str(sock.getpeername()))
                             continue
