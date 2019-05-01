@@ -292,6 +292,7 @@ class MainServerConnection(threading.Thread):
         lis.append(self.receive)
         print('listening from main server on port:',
               self.receive.getsockname()[1])
+        global RUNNING
         while RUNNING:
             read, write, err = select.select(lis, [], [])
             for item in read:
@@ -448,7 +449,7 @@ class handle_connections(threading.Thread):
                                 socket.AF_INET, socket.SOCK_STREAM)
                             self.sock.connect(('127.0.0.1', s))
                             # msg = pickle.loads(items)
-                            # if(msg.type == 'AMSG'):
+                            # if(msg.type == 'AMSG'):   
                             try:
                                 self.sock.send(items)
                                 # time.sleep(1)
