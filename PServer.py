@@ -11,16 +11,20 @@ import pickle
 import cv2
 import Crypto
 import numpy as np
+import atexit
 from collections import defaultdict
 
-INPUTS = [] #readable sockets
-OUTPUTS = [] #writetable sockets
-MSGS = defaultdict(list) #messages to be sent (queue), indexed by socket
-Users = {} #user objects, indexed by username
-logged_in_users = {} #ports, indexed by username
+user_list_path = 'user_list.lst'
+INPUTS = []  # readable sockets
+OUTPUTS = []  # writetable sockets
+MSGS = defaultdict(list)  # messages to be sent (queue), indexed by socket
+Users = {}  # user objects, indexed by username
+logged_in_users = {}  # ports, indexed by username
+
 
 class SteganographyException(Exception):
     pass
+
 
 class LSBSteg():
     def __init__(self, im):
@@ -176,6 +180,7 @@ class LSBSteg():
             output += chr(int(self.read_byte(), 2)).encode("utf-8")
         return output
 
+
 class Server(threading.Thread):
 
     def init(self):
@@ -213,6 +218,7 @@ class Server(threading.Thread):
                     except:
                         continue
 
+
 class Msg:
     name = ''
     port = 0
@@ -222,11 +228,13 @@ class Msg:
     users = []
     password = ''
 
+
 class User:
     name = ''
     port = None
     pub_key = ''
     password = ''
+
 
 class handle_connections(threading.Thread):
     def run(self):
@@ -249,7 +257,7 @@ class handle_connections(threading.Thread):
                             response = Msg()
                             response.type = 'OK'
                             response.msg = 'Signed up successfully'
-                            try:                                
+                            try:
                                 sock.send(pickle.dumps(response))
                             except:
                                 continue
@@ -263,10 +271,10 @@ class handle_connections(threading.Thread):
                             except:
                                 continue
                     elif (msg.type == 'LOGIN'):
-                        if (msg.name in Users.keys() and Users[msg.name].password == msg.password and not logged_in_users[msg.name]):
+                        if (msg.name in Users.keys() and Users[msg.name].password == msg.password and msg.name not in logged_in_users.keys()):
                             print('User logged in successfully', msg.name)
                             Users[msg.name].port = sock.getpeername()[1]
-                            logged_in_users[user.name] = user.port
+                            logged_in_users[msg.name] = sock.getpeername()[1]
                             response = Msg()
                             response.type = 'OK'
                             response.msg = 'Signed in successfully'
@@ -303,14 +311,29 @@ class handle_connections(threading.Thread):
                             sock.shutdown(socket.SHUT_RDWR)
                             sock.close()
                             MSGS[sock].clear()
-                            break #discard any messages to be sent to this user
+                            break  # discard any messages to be sent to this user
                         except:
                             continue
                     else:
                         print('Unknown message type', msg.type)
 
 
+def load_user_list():
+    global Users
+    with open(user_list_path, 'rb') as file:
+        Users = pickle.load(file)
+    print(Users)
+
+
+@atexit.register
+def save_user_list():
+    global Users
+    with open(user_list_path, 'wb') as file:
+        pickle.dump(Users, file)
+
+
 if __name__ == '__main__':
+    load_user_list()
     srv = Server()
     srv.init()
     srv.start()
