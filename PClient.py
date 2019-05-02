@@ -213,15 +213,16 @@ class Server(threading.Thread):
                             MSGS[sock].clear()
                             sock.close()
                         else:
-                            decoded_msg = msg # decode here with own private key
+                            # decode here with own private key
+                            decoded_msg = msg
                             msg_data = pickle.loads(decoded_msg)
                             msg_content = msg_data.msg  # decode here with socket's public key then with steganography
                             type = msg_data.type.strip()
                             if type == 'AMSG':
-                                print('[PUBLIC]', msg_data.name, ': ', msg_content)
+                                print('[PUBLIC]', msg_data.name, ': ', LSBSteg(msg_content).decode_text())
                             elif type == 'DMSG':
                                 print('[PRIVATE]', msg_data.name,
-                                      ': ', msg_content)
+                                      ': ', LSBSteg(msg_content).decode_text())
                             elif type == 'ULST':
                                 logged_in_users = msg_content
                                 print('USERLIST UPDATED')
@@ -275,9 +276,10 @@ class Client(threading.Thread):
         msg = Msg()
         msg.name = USERNAME
         msg.type = type
-        encoded_text = text  # Encode the message using steganography and own private key
+        STEG = LSBSteg(cv2.imread("guc1.png"))
+        encoded_text = STEG.encode_text(text)  # Encode the message using steganography and own private key
         msg.msg = encoded_text
-        encoded_msg = msg  # Encode the message using the recepient's public key
+        encoded_msg = msg # Encode the message using the recepient's public key
         recepient_socket = None
         recepient_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         recepient_socket.connect(('', logged_in_users[user]))
@@ -325,7 +327,7 @@ class Client(threading.Thread):
             MSGS[SERVER_SOCKET].append(msg)
             while AUTH_STATUS == 'WAITING':
                 pass
-        time.sleep(1)
+        #time.sleep(5)
         while True:
             uinput = input('>>')
             uinput = uinput.split(':')
