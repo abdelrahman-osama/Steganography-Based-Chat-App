@@ -16,6 +16,7 @@ from collections import defaultdict
 
 USERNAME = ''
 LISTENER_SOCK = None
+LISTENING_PORT = 0
 SERVER_SOCKET = None
 INPUTS = []  # readable sockets
 OUTPUTS = []  # writetable sockets
@@ -221,8 +222,7 @@ class Server(threading.Thread):
                                 print('[PRIVATE]', msg.name, ': ', msg_content)
                             elif msg_data.type == 'ULST':
                                 logged_in_users = msg_content
-                                print(msg_content)
-                                print(logged_in_users)
+                                print('USERLIST UPDATED')
                             elif msg_data.type == 'OK':                                
                                 AUTH_STATUS = 'OK'
                                 print(msg_content)
@@ -258,13 +258,13 @@ class Client(threading.Thread):
     sock = None
 
     def init(self):
-        global LISTENER_SOCK
+        global LISTENER_SOCK, LISTENING_PORT
         LISTENER_SOCK = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         LISTENER_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         LISTENER_SOCK.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         LISTENER_SOCK.setblocking(False)
-        port = random.randint(51400, 51500)
-        LISTENER_SOCK.bind(('', port))
+        LISTENING_PORT = random.randint(51400, 51500)
+        LISTENER_SOCK.bind(('', LISTENING_PORT))
         LISTENER_SOCK.listen(2)
         INPUTS.append(LISTENER_SOCK)
 
@@ -301,6 +301,7 @@ class Client(threading.Thread):
         OUTPUTS.append(SERVER_SOCKET)
         while AUTH_STATUS == 'FAIL': # Login/SignUp loop
             msg = Msg()
+            msg.port = LISTENING_PORT
             initialState = input(
                 "To login enter 'l' and to sign up enter 's'")
             if(initialState == 's'):
@@ -317,6 +318,7 @@ class Client(threading.Thread):
             MSGS[SERVER_SOCKET].append(msg)
             while AUTH_STATUS == 'WAITING':
                 pass
+        time.sleep(1)
         while True:
             uinput = input('>>')
             uinput = uinput.split(':')

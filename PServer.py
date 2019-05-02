@@ -197,10 +197,8 @@ class Server(threading.Thread):
         msg = Msg()
         msg.type = 'ULST'
         msg.msg = logged_in_users
-        print(logged_in_users)
-        print(msg.msg)
         for user in Users:
-            print('sending user list to ', user)
+            print('sending user list to', user)
             MSGS[Users[user].sock].append(msg)            
 
 
@@ -231,9 +229,9 @@ class Server(threading.Thread):
                                     print('USER REGISTERATION')
                                     user = User()
                                     user.name = msg_data.name
-                                    user.port = sock.getpeername()[1]
                                     user.password = msg_data.password
                                     user.sock = sock
+                                    user.port = msg_data.port
                                     print(user.name, "NEW USER")
                                     Users[user.name] = user
                                     logged_in_users[user.name] = user.port
@@ -250,10 +248,9 @@ class Server(threading.Thread):
                                 if (msg_data.name in Users.keys() and Users[msg_data.name].password == msg_data.password and msg_data.name not in logged_in_users.keys()):
                                     print('User logged in successfully',
                                           msg_data.name)
-                                    Users[msg_data.name].port = sock.getpeername()[1]
+                                    Users[msg_data.name].port = msg_data.port
                                     Users[msg_data.name].sock = sock
-                                    logged_in_users[msg_data.name] = sock.getpeername()[
-                                        1]
+                                    logged_in_users[msg_data.name] = msg_data.port
                                     response = Msg()
                                     response.type = 'OK'
                                     response.msg = 'Signed in successfully'
