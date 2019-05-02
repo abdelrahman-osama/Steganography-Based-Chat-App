@@ -11,13 +11,19 @@ import pickle
 import random
 import cv2
 import Crypto.Hash.MD5 as MD5
-SOCKET_LIST = []
-SENDING_LIST = []
-TO_BE_SENT = []
-SENT_BY = {}
-UsersList = []
-ServerPort = 0
-RUNNING = True
+import atexit
+from collections import defaultdict
+
+USERNAME = ''
+LISTENER_SOCK = None
+SERVER_SOCKET = None
+INPUTS = []  # readable sockets
+OUTPUTS = []  # writetable sockets
+MSGS = defaultdict(list)  # messages to be sent (queue), indexed by socket
+logged_in_users = {}  # ports, indexed by username
+sockets = {}  # sockets, indexed by username
+ServerPort = 5535
+AUTH_STATUS = 'FAIL'
 
 
 class SteganographyException(Exception):
@@ -181,99 +187,64 @@ class LSBSteg():
 
 class Server(threading.Thread):
 
-    def getSock(self):
-        return self.sock
+    sock = None
 
-    def initialise(self, receive):
-        self.receive = receive
-
-    def init(self):
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        port = random.randint(51400, 51500)
-        hostname = '127.0.0.1'
-        self.sock.bind((hostname, port))
-        print("Server started on port ", port)
-        global ServerPort
-        ServerPort = port
-        # self.sock.listen(1)
-        self.sock.listen(2)
-        SOCKET_LIST.append(self.sock)
-        # print("User APPENDED", SOCKET_LIST[-1])
-
-    def decode(self, img):
-        steg_out = LSBSteg(img)
-        raw = steg_out.decode_text()
-        return raw
+    def init(self, sock):
+        self.sock = sock
 
     def run(self):
-        while RUNNING:
-            read, write, err = select.select(SOCKET_LIST, [], [], 0)
+        global logged_in_users, AUTH_STATUS
+        while True:
+            read, write, err = select.select(INPUTS, [], [], 0)
             for sock in read:
                 if sock == self.sock:
                     sockfd, addr = self.sock.accept()
-                    # print(str(addr), "NEW CONNECTION")
-                    SOCKET_LIST.append(sockfd)
-                    # print(SOCKET_LIST[len(SOCKET_LIST)-1])
+                    INPUTS.append(sockfd)
+                    print(str(addr))
+                    print(INPUTS[-1])
                 else:
                     try:
-                        s = sock.recv(4096)
-                        # total = len(s)
-                        # print('MSG TOTAL SIZE = ', total)
-                        # m = ''
-                        # while(s):
-                        #     print('receiving..')
-                        #     m += s
-                        # if(len(m) == total):
-                        #     break
-
-                        data_string = pickle.loads(s)
-                        # print(data_string.type, 'MESSAGE TYPE')
-                        if(data_string.type == 'BYE'):
-                            # print(str(sock.getpeername()), "hena??")
-                            SOCKET_LIST.remove(sock)
-                            print("User left the chat")
+                        msg = sock.recv(4096)
+                        if msg == b'':
+                            if sock in OUTPUTS:
+                                OUTPUTS.remove(sock)
+                            INPUTS.remove(sock)
+                            MSGS[sock].clear()
                             sock.close()
-                        # if  == '':
-                        #     SOCKET_LIST.remove(sock)
-                        #     print("User left the chat")
-                        #     sock.close()
                         else:
-                            # if data_string.type == 'AMSG':
-                                # TO_BE_SENT.append(s)
-                            out = self.decode(data_string.msg)
-                            # out =
-                            # out = data_string.msg
-                            print(data_string.name, ': ', out)
-                            # SENT_BY[s] = (str(sock.getpeername()))
+                            decoded_msg = msg # decode here with own private key
+                            msg_data = pickle.loads(decoded_msg)
+                            msg_content = msg_data.msg  # decode here with socket's public key then with steganography
+                            if msg_data.type == 'AMSG':
+                                print('[PUBLIC]', msg.name, ': ', msg_content)
+                            elif msg_data.type == 'DMSG':
+                                print('[PRIVATE]', msg.name, ': ', msg_content)
+                            elif msg_data.type == 'ULST':
+                                logged_in_users = msg_content
+                                print(msg_content)
+                                print(logged_in_users)
+                            elif msg_data.type == 'OK':                                
+                                AUTH_STATUS = 'OK'
+                                print(msg_content)
+                            elif msg_data.type == 'FAIL':
+                                AUTH_STATUS = 'FAIL'
+                                print(msg_content)
+                            # elif msg_data.type == 'BYE':
+                                # do stuff
+                            else:
+                                print('UNKNOWN MESSAGE TYPE RECEIVED',
+                                      msg_data.type)
                     except:
-                        # print(sock, "hena??")
-                        SOCKET_LIST.remove(sock)
-                        # print("REMOVED", sock)
-                        sock.close()
+                        continue
 
 
 class Msg:
-    name = ''
-    port = 0
-    pub_key = ''
-    receiver_name = ''
-    receiver_port = 0
-    type = ''
-    msg = ''
-    users = []
-    sock = ''
-    password = ''
-
-    # stag = np.empty()
-
-
-class User:
-    name = ''
-    port = 0
-    pub_key = ''
-    password = ''
+    name = ''  # sender name
+    port = 0  # used in authenticatiom
+    pub_key = ''  # used in authenticatiom
+    type = ''  # type of message
+    msg = ''  # content of the message
+    password = ''  # used in authentication
 
     def __str__(self):
         out = 'Name : '
@@ -283,205 +254,129 @@ class User:
         return out
 
 
-class MainServerConnection(threading.Thread):
-    def initialise(self, receive):
-        self.receive = receive
-
-    def run(self):
-        lis = []
-        lis.append(self.receive)
-        print('listening from main server on port:',
-              self.receive.getsockname()[1])
-        global RUNNING
-        while RUNNING:
-            read, write, err = select.select(lis, [], [])
-            for item in read:
-                try:
-                    s = item.recv(1024)
-                    # m = s.decode('utf-8')
-                    data_string = Msg()
-                    data_string = pickle.loads(s)
-                    print(data_string.type, 'MSG TYPE')
-                    if(data_string.type == 'ULST'):
-                        global UsersList
-                        UsersList = data_string.users
-                        print("USER LIST UPDATED")
-                        for i in UsersList:
-                            print(str(i))
-                    # if s != '':
-                    #     chunk = data_string.msg
-                    #     print(str('')+':'+chunk)
-                except:
-                    traceback.print_exc(file=sys.stdout)
-                    break
-
-
 class Client(threading.Thread):
+    sock = None
 
-    def encrypt(self, msg):
-        steg = LSBSteg(cv2.imread("guc1.png"))
-        res = steg.encode_text(msg)
-        # img = cv2.imwrite("mohy_t.png", res)
-        return res
+    def init(self):
+        global LISTENER_SOCK
+        LISTENER_SOCK = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        LISTENER_SOCK.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        LISTENER_SOCK.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        LISTENER_SOCK.setblocking(False)
+        port = random.randint(51400, 51500)
+        LISTENER_SOCK.bind(('', port))
+        LISTENER_SOCK.listen(2)
+        INPUTS.append(LISTENER_SOCK)
 
-    def connect(self, host, port, name, password, initialState):
-        self.sock.connect((host, port))
+    def send(self, type, user, text):
+        global USERNAME
         msg = Msg()
-        msg.name = name
-        msg.port = ServerPort
-        # msg.password = password
-        msg.password = MD5.new(password.encode('utf-8')).digest()
-        # print(msg.password)
-        # print(repr(msg.password))
-        msg.type = 'REG'
-        if(initialState == 's'):
-            msg.type = 'REG'
-        elif(initialState == 'l'):
-            msg.type = 'LOGIN'
-        data_string = pickle.dumps(msg)
-        self.sock.send(data_string)
-        # print("sent")
-
-    def client(self, host, port, msg, srv):
-        if msg.type == 'AMSG':
-            self.sock.send(pickle.dumps(msg))
-        # self.sock.send(pickle.dumps(msg))
-        # print "Sent\n"
+        msg.name = USERNAME
+        msg.type = type
+        encoded_text = text  # Encode the message using steganography and own private key
+        msg.msg = encoded_text
+        encoded_msg = msg  # Encode the message using the recepient's public key
+        recepient_socket = None
+        if user in sockets.keys():
+            recepient_socket = sockets[user]
+        else:
+            recepient_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            recepient_socket.connect(('', logged_in_users[user]))
+            sockets[user] = recepient_socket
+            INPUTS.append(recepient_socket)
+            OUTPUTS.append(recepient_socket)
+        MSGS[user].append(encoded_msg)
 
     def run(self):
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        try:
-            # host = input("Enter the hostname\n>>")
-            # port = int(input("Enter the port\n>>"))
-            host = '127.0.0.1'
-            port = 5535
-            initialState = input(
-                "to login enter 'l' and to sign up enter 's' ")
-            name = input("Enter your name: ")
-            password = input("Enter your password: ")
-            # user.port
-
-        except EOFError:
-            print("Error")
-            return 1
-
-        #
-
-        # time.sleep(1)
-        srv = Server()
-        srv.daemon = True
-        print("Starting service")
-        srv.init()
-        time.sleep(1)
-        print("Connecting\n")
-        s = ''
-        # servSock = srv.getSock()
-        self.connect(host, port, name, password, initialState)
-        print("Connected\n")
-        time.sleep(1)
-        srv.start()
-        time.sleep(1)
-        print("Starting handler")
+        global AUTH_STATUS, USERNAME, SERVER_SOCKET
+        server = Server()
+        server.daemon = True
+        server.init(LISTENER_SOCK)
+        server.start()
         handle = handle_connections()
         handle.start()
-        time.sleep(1)
-        receive = self.sock
-        srv2 = MainServerConnection()
-        srv2.initialise(receive)
-        srv2.daemon = True
-        print("Starting service")
-        srv2.start()
-        global RUNNING
-        while RUNNING:
-            # print "Waiting for message\n"
-            try:
-                msg = Msg()
-                uinput = input('>>')
-                uinput = uinput.split(':')
-                msg.type = uinput[0].strip()
-                if(msg.type == 'DMSG'):
-                    msg.receiver_name = uinput[1].strip()
-                    msg.msg = self.encrypt(uinput[2].strip())
-                    # msg.receiver_port = 0
-                # msg.msg = uinput[1]
-                else:
-                    msg.msg = self.encrypt(uinput[1].strip())
-                msg.name = name.strip()
-            except:
+        SERVER_SOCKET = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        SERVER_SOCKET.connect(('', ServerPort))
+        INPUTS.append(SERVER_SOCKET)
+        OUTPUTS.append(SERVER_SOCKET)
+        while AUTH_STATUS == 'FAIL': # Login/SignUp loop
+            msg = Msg()
+            initialState = input(
+                "To login enter 'l' and to sign up enter 's'")
+            if(initialState == 's'):
+                msg.type = 'REG'
+            elif(initialState == 'l'):
+                msg.type = 'LOGIN'
+            else:
+                print('INVALID INPUT')
                 continue
-            if(msg.type == 'AMSG'):
-                TO_BE_SENT.append(pickle.dumps(msg))
-                SENT_BY[pickle.dumps(msg)] = (msg.name)
-            elif(msg.type == 'DMSG'):
-                TO_BE_SENT.append(pickle.dumps(msg))
-                SENT_BY[pickle.dumps(msg)] = (msg.name)
-            elif(msg.type == 'FTCH'):
-                self.sock.send(pickle.dumps(msg))
-            elif(msg.type == 'BYE'):
-                self.sock.send(pickle.dumps(msg))
-                self.sock.shutdown(socket.SHUT_WR)
-                self.sock.close()
-                RUNNING = False
-                sys.exit(0)
-            elif msg.msg == 'exit':
-                break
-            elif msg.msg == '':
+            msg.name = input("Enter your name: ")
+            USERNAME = msg.name
+            msg.password = input("Enter your password: ")
+            AUTH_STATUS = 'WAITING'
+            MSGS[SERVER_SOCKET].append(msg)
+            while AUTH_STATUS == 'WAITING':
+                pass
+        while True:
+            uinput = input('>>')
+            uinput = uinput.split(':')
+            if len(uinput) < 1 or len(uinput) > 3:
+                print('INVALID MESSAGE FORMAT')
                 continue
-            print("Sending\n")
-            # self.client(host, port, msg, srv)
-        return(1)
+            type = uinput[0].strip()
+            if type == 'FTCH':
+                show_user_list()
+            elif type == 'DMSG':
+                if len(uinput) != 3:
+                    print('INVALID MESSAGE FORMAT')
+                    continue
+                if uinput[1].strip() not in logged_in_users.keys():
+                    print('USER <' + uinput[1].strip() + '> IS NOT ONLINE')
+                    continue
+                self.send(type, uinput[1].strip(), uinput[2])
+            elif type == 'AMSG':
+                if len(uinput) != 2:
+                    print('INVALID MESSAGE FORMAT')
+                    continue
+                for user in logged_in_users.keys():
+                    self.send(type, user, uinput[1].strip())
+            else:
+                print('INVALID MESSAGE FORMAT')
 
 
 class handle_connections(threading.Thread):
     def run(self):
-        global RUNNING
-        while RUNNING:
-            for items in TO_BE_SENT:
-                msg = pickle.loads(items)
-                if(msg.type == 'AMSG'):
-                    ports = []
-                    for user in UsersList:
-                        ports.append(user.port)
-                    for s in ports:
-                        try:
-                            self.sock = socket.socket(
-                                socket.AF_INET, socket.SOCK_STREAM)
-                            self.sock.connect(('127.0.0.1', s))
-                            # msg = pickle.loads(items)
-                            # if(msg.type == 'AMSG'):   
-                            try:
-                                self.sock.send(items)
-                                # time.sleep(1)
-                            finally:
-                                self.sock.close()
-                            # self.sock.shutdown()
-                        except:
-                            traceback.print_exc(file=sys.stdout)
-                    TO_BE_SENT.remove(items)
-                    del(SENT_BY[items])
-                if(msg.type == 'DMSG'):
-                    port = 0
-                    for user in UsersList:
-                        if(user.name == msg.receiver_name):
-                            port = user.port
+        while True:
+            read, write, err = select.select([], OUTPUTS, [], 0)
+            for sock in write:
+                while (MSGS[sock] != []):
                     try:
-                        self.sock = socket.socket(
-                            socket.AF_INET, socket.SOCK_STREAM)
-                        self.sock.connect(('127.0.0.1', port))
-                        try:
-                            self.sock.send(items)
-                        finally:
-                            self.sock.close()
+                        msg = pickle.dumps(MSGS[sock].pop(0))
+                        sock.sendall(msg)
                     except:
-                        traceback.print_exc(file=sys.stdout)
-                    TO_BE_SENT.remove(items)
-                    del(SENT_BY[items])
+                        continue
 
+def show_user_list():
+    global logged_in_users
+    print('ONLINE USERS:')
+    for user in logged_in_users.keys():
+        print(user)
+
+@atexit.register
+def clean_exit():
+    global AUTH_STATUS, LISTENER_SOCK, SERVER_SOCKET
+    msg = Msg()
+    msg.type = 'BYE'
+    msg.name = USERNAME
+    MSGS[SERVER_SOCKET].append(msg)
+    try:
+        LISTENER_SOCK.shutdown(socket.SHUT_RDWR)
+        LISTENER_SOCK.close()
+    except:
+        print('Failed to exit gracefully')
 
 if __name__ == '__main__':
-
-    # time.sleep(1)
     print("Starting client")
     cli = Client()
+    cli.init()
     cli.start()

@@ -192,6 +192,17 @@ class Server(threading.Thread):
         self.sock.listen(2)
         INPUTS.append(self.sock)
         print("Server started on port 5535")
+    
+    def notify_userlist_update(self):
+        msg = Msg()
+        msg.type = 'ULST'
+        msg.msg = logged_in_users
+        print(logged_in_users)
+        print(msg.msg)
+        for user in Users:
+            print('sending user list to ', user)
+            MSGS[Users[user].sock].append(msg)            
+
 
     def run(self):
         while True:
@@ -212,21 +223,86 @@ class Server(threading.Thread):
                             MSGS[sock].clear()
                             sock.close()
                         else:
-                            MSGS[sock].append(msg)
+                            new_user_added = False
+                            msg_data = pickle.loads(msg)
+                            print(msg_data.type, "MESSAGE TYPE")
+                            if(msg_data.type == 'REG'):
+                                if(msg_data.name not in Users.keys()):
+                                    print('USER REGISTERATION')
+                                    user = User()
+                                    user.name = msg_data.name
+                                    user.port = sock.getpeername()[1]
+                                    user.password = msg_data.password
+                                    user.sock = sock
+                                    print(user.name, "NEW USER")
+                                    Users[user.name] = user
+                                    logged_in_users[user.name] = user.port
+                                    response = Msg()
+                                    response.type = 'OK'
+                                    response.msg = 'Signed up successfully'
+                                    new_user_added = True
+                                else:
+                                    print('User Already Exists')
+                                    response = Msg()
+                                    response.type = 'FAIL'
+                                    response.msg = 'Username Already Taken'
+                            elif (msg_data.type == 'LOGIN'):
+                                if (msg_data.name in Users.keys() and Users[msg_data.name].password == msg_data.password and msg_data.name not in logged_in_users.keys()):
+                                    print('User logged in successfully',
+                                          msg_data.name)
+                                    Users[msg_data.name].port = sock.getpeername()[1]
+                                    Users[msg_data.name].sock = sock
+                                    logged_in_users[msg_data.name] = sock.getpeername()[
+                                        1]
+                                    response = Msg()
+                                    response.type = 'OK'
+                                    response.msg = 'Signed in successfully'
+                                    new_user_added = True
+                                else:
+                                    print('Invalid username/password',
+                                          msg_data.name)
+                                    response = Msg()
+                                    response.type = 'FAIL'
+                                    response.msg = 'Invalid username/password'
+                            elif (msg_data.type == 'FTCH'):
+                                print('Userlist requested', msg.name)
+                                response = Msg()
+                                response.msg = logged_in_users
+                                response.type = 'ULST'
+                            elif (msg_data.type == 'BYE'):
+                                if logged_in_users[msg_data.name]:
+                                    print('User', msg_data.name, 'logged out')
+                                    Users[msg_data.name].socket = None
+                                    del logged_in_users[msg_data.name]
+                                try:
+                                    INPUTS.remove(sock)
+                                    OUTPUTS.remove(sock)
+                                    sock.shutdown(socket.SHUT_RDWR)
+                                    sock.close()
+                                    del MSGS[sock]
+                                    break  # discard any messages to be sent to this user
+                                except:
+                                    continue
+                            else:
+                                print('Unknown message type', msg_data.type)
+                                continue
+                            MSGS[sock].append(response)
                             if sock not in OUTPUTS:
                                 OUTPUTS.append(sock)
+                            if new_user_added:
+                                self.notify_userlist_update()
                     except:
+                        traceback.print_exc()
                         continue
 
 
 class Msg:
-    name = ''
-    port = 0
-    pub_key = ''
-    type = ''
-    msg = ''
-    users = []
-    password = ''
+    name = ''  # sender name
+    port = 0  # used in authenticatiom
+    pub_key = ''  # used in authenticatiom
+    type = ''  # type of message
+    msg = ''  # content of the message
+    password = ''  # used in authentication
 
 
 class User:
@@ -234,6 +310,7 @@ class User:
     port = None
     pub_key = ''
     password = ''
+    sock = None
 
 
 class handle_connections(threading.Thread):
@@ -242,87 +319,17 @@ class handle_connections(threading.Thread):
             read, write, err = select.select([], OUTPUTS, [], 0)
             for sock in write:
                 while (MSGS[sock] != []):
-                    msg = pickle.loads(MSGS[sock].pop(0))
-                    print(msg.type, "MESSAGE TYPE")
-                    if(msg.type == 'REG'):
-                        if(msg.name not in Users.keys()):
-                            print('USER REGISTERATION')
-                            user = User()
-                            user.name = msg.name
-                            user.port = sock.getpeername()[1]
-                            user.password = msg.password
-                            print(user.name, "NEW USER")
-                            Users[user.name] = user
-                            logged_in_users[user.name] = user.port
-                            response = Msg()
-                            response.type = 'OK'
-                            response.msg = 'Signed up successfully'
-                            try:
-                                sock.send(pickle.dumps(response))
-                            except:
-                                continue
-                        else:
-                            print('User Already Exists')
-                            response = Msg()
-                            response.type = 'FAIL'
-                            response.msg = 'Username Already Taken'
-                            try:
-                                sock.send(pickle.dumps(response))
-                            except:
-                                continue
-                    elif (msg.type == 'LOGIN'):
-                        if (msg.name in Users.keys() and Users[msg.name].password == msg.password and msg.name not in logged_in_users.keys()):
-                            print('User logged in successfully', msg.name)
-                            Users[msg.name].port = sock.getpeername()[1]
-                            logged_in_users[msg.name] = sock.getpeername()[1]
-                            response = Msg()
-                            response.type = 'OK'
-                            response.msg = 'Signed in successfully'
-                            try:
-                                sock.send(pickle.dumps(response))
-                            except:
-                                continue
-                        else:
-                            print('Invalid username/password', msg.name)
-                            response = Msg()
-                            response.type = 'FAIL'
-                            response.msg = 'Invalid username/password'
-                            try:
-                                sock.send(pickle.dumps(response))
-                            except:
-                                continue
-                    elif (msg.type == 'FTCH'):
-                        print('Userlist requested', msg.name)
-                        response = Msg()
-                        response.msg = logged_in_users
-                        response.type = 'ULST'
-                        try:
-                            sock.send(pickle.dumps(response))
-                        except:
-                            continue
-                    elif (msg.type == 'BYE'):
-                        if logged_in_users[msg.name]:
-                            Users[msg.name].socket = None
-                            del logged_in_users[msg.name]
-                            print('User', msg.name, 'logged out')
-                        try:
-                            INPUTS.remove(sock)
-                            OUTPUTS.remove(sock)
-                            sock.shutdown(socket.SHUT_RDWR)
-                            sock.close()
-                            MSGS[sock].clear()
-                            break  # discard any messages to be sent to this user
-                        except:
-                            continue
-                    else:
-                        print('Unknown message type', msg.type)
+                    try:
+                        msg = pickle.dumps(MSGS[sock].pop(0))
+                        sock.sendall(msg)
+                    except:
+                        continue
 
 
 def load_user_list():
     global Users
     with open(user_list_path, 'rb') as file:
         Users = pickle.load(file)
-    print(Users)
 
 
 @atexit.register
