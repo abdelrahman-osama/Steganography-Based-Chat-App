@@ -29,7 +29,7 @@ Here is a list of the different types and there params:
 ```
 AMSG : message
 DMSG: username : message
-FTCH: <No Params>
+FTCH: <No params>
 BYE: <No params>
 ```
 
