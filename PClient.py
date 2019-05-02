@@ -201,8 +201,8 @@ class Server(threading.Thread):
                 if sock == self.sock:
                     sockfd, addr = self.sock.accept()
                     INPUTS.append(sockfd)
-                    print(str(addr))
-                    print(INPUTS[-1])
+                    # print(str(addr))
+                    # print(INPUTS[-1])
                 else:
                     try:
                         msg = sock.recv(4096)
@@ -216,17 +216,19 @@ class Server(threading.Thread):
                             decoded_msg = msg # decode here with own private key
                             msg_data = pickle.loads(decoded_msg)
                             msg_content = msg_data.msg  # decode here with socket's public key then with steganography
-                            if msg_data.type == 'AMSG':
-                                print('[PUBLIC]', msg.name, ': ', msg_content)
-                            elif msg_data.type == 'DMSG':
-                                print('[PRIVATE]', msg.name, ': ', msg_content)
-                            elif msg_data.type == 'ULST':
+                            type = msg_data.type.strip()
+                            if type == 'AMSG':
+                                print('[PUBLIC]', msg_data.name, ': ', msg_content)
+                            elif type == 'DMSG':
+                                print('[PRIVATE]', msg_data.name,
+                                      ': ', msg_content)
+                            elif type == 'ULST':
                                 logged_in_users = msg_content
                                 print('USERLIST UPDATED')
-                            elif msg_data.type == 'OK':                                
+                            elif type == 'OK':                                
                                 AUTH_STATUS = 'OK'
                                 print(msg_content)
-                            elif msg_data.type == 'FAIL':
+                            elif type == 'FAIL':
                                 AUTH_STATUS = 'FAIL'
                                 print(msg_content)
                             # elif msg_data.type == 'BYE':
@@ -277,7 +279,11 @@ class Client(threading.Thread):
         msg.msg = encoded_text
         encoded_msg = msg  # Encode the message using the recepient's public key
         recepient_socket = None
-        if user in sockets.keys():
+        recepient_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        recepient_socket.connect(('', logged_in_users[user]))
+        recepient_socket.send(pickle.dumps(encoded_msg))
+        recepient_socket.close()
+        """ if user in sockets.keys():
             recepient_socket = sockets[user]
         else:
             recepient_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -285,7 +291,8 @@ class Client(threading.Thread):
             sockets[user] = recepient_socket
             INPUTS.append(recepient_socket)
             OUTPUTS.append(recepient_socket)
-        MSGS[user].append(encoded_msg)
+        MSGS[user].append(encoded_msg) """
+        
 
     def run(self):
         global AUTH_STATUS, USERNAME, SERVER_SOCKET
