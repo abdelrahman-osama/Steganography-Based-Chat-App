@@ -30,7 +30,7 @@ Here is a list of the different types and there params:
 AMSG : message
 DMSG: username : message
 FTCH: <No Params>
-BYE: <NO params>
+BYE: <No params>
 ```
 
 Project Video: https://drive.google.com/drive/folders/1M19qoTND_fVionSIGIuOZqdSNJfJFM-o?usp=sharing
