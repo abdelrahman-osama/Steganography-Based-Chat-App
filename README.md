@@ -7,7 +7,7 @@ git clone https://github.com/abdelrahman-osama/Steganography-Based-Chat-App.git
 
 Install crypto
 ```
-pip install crypto
+pip install pycrypto
 ```
 Run the server
 ```
