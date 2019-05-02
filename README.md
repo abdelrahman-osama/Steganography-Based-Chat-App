@@ -4,6 +4,10 @@ clone the repo
 ```
 git clone https://github.com/abdelrahman-osama/Steganography-Based-Chat-App.git
 ```
+install opencv
+```
+pip install opencv-python
+```
 
 Install crypto
 ```
