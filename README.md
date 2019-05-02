@@ -20,3 +20,12 @@ python PClient.py
 ```
 
 Follow the on scren instructions in the client terminal.
+
+To send a message follow the following format:
+```
+TYPE: MESSAGE
+```
+Here is a list of the different types and there params:
+```
+AMSG : message , DMSG: username : message, FTCH: <No Params>, BYE: <NO params>
+```
